@@ -37,14 +37,14 @@ class LogisticRegressionModel(BaseModel):
     def __init__(self, data, regularization=None):
         super().__init__(data, regularization)
     
-    def preprocess(self):
+    def preprocess(self, features):
         # TODO: Need to handle ties
         # Add column as target for classification
         self.data['target'] = self.data['winner'].map({'model_a': 1, 'model_b': 0})
-        super().preprocess()
+        super().preprocess(features)
 
     def train_model(self):
-        if self.regularization == 'l1':
+        if self.regularization == 'l1': # TODO: l1 does't work with lbfgs solver so errors currently
             self.model = LogisticRegression(penalty='l1')
         elif self.regularization == 'l2':
             self.model = LogisticRegression(penalty='l2')
@@ -61,7 +61,7 @@ class LogisticRegressionModel(BaseModel):
 
     def evaluate(self, y_pred):
         print("The log loss is: ", log_loss(self.y_test, y_pred))
-        print(confusion_matrix(self.y_test, y_pred))
+        print("The confusion matrix is: ", confusion_matrix(self.y_test, y_pred))
 
 # TODO: Need to create a multi-classification model for handling ties
 
@@ -104,13 +104,13 @@ class MultiLinearRegressionModel(BaseModel):
         print("The MSE is: ", mean_squared_error(self.y_test, y_pred))
 
 class RandomForestModel(BaseModel):
-    def __init__(self, data, regularization=None):
-        super().__init__(data, regularization)
+    def __init__(self, data):
+        super().__init__(data, None)
     
-    def preprocess(self):
+    def preprocess(self, features):
         # Add column as target for classification
         self.data['target'] = self.data['winner'].map({'model_a': 1, 'model_b': 0})
-        super().preprocess()
+        super().preprocess(features)
 
     def train_model(self):
         self.model = RandomForestClassifier()
@@ -124,8 +124,8 @@ class RandomForestModel(BaseModel):
         return y_pred
 
     def evaluate(self, y_pred):
-        print(log_loss(self.y_test, y_pred))
-        print(confusion_matrix(self.y_test, y_pred))
+        print("The log loss is: ", log_loss(self.y_test, y_pred))
+        print("The confusion matrix is: ", confusion_matrix(self.y_test, y_pred))
 
 
 ### Below this line is not finished yet ###
