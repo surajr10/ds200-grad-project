@@ -19,9 +19,9 @@ class TextFeatureEngine:
         df_processed = df.copy()
         
         # Extract prompt and responses from conversation structure
-        df_processed["prompt"] = df_processed[conversation_a_col].str[0].str["content"]
-        df_processed["response_a"] = df_processed[conversation_a_col].str[1].str["content"]
-        df_processed["response_b"] = df_processed[conversation_b_col].str[1].str["content"]
+        df_processed["prompt"] = self._extract_prompt(df_processed, conversation_a_col)
+        df_processed["response_a"] = self._extract_content(df_processed[conversation_a_col])
+        df_processed["response_b"] = self._extract_content(df_processed[conversation_b_col])
         
         # Continue with feature processing...
         df_processed = self._add_tokenization_features(df_processed)
@@ -32,10 +32,15 @@ class TextFeatureEngine:
         
         return df_processed
     
+    def _extract_prompt(self, df, conversation_a_col):
+        if 'prompt' in list(df.columns):
+            return df['prompt']
+        return df[conversation_a_col].str[0].str["content"]
+    
     def _extract_content(self, series):
         """Extract content from conversation format if needed"""
         try:
-            return series.str["content"] if isinstance(series.iloc[0], dict) else series
+            return series.str[0].str["content"] if isinstance(series.iloc[0], list) else series
         except:
             return series
     
@@ -44,11 +49,18 @@ class TextFeatureEngine:
         pattern = r"\b\w+\b"
         return re.findall(pattern, str(text))
     
+    def _handle_upper_outliers(self, df, columns, upper_quantile=0.99):
+        for column in columns:
+            cap_value = df[column].quantile(upper_quantile)
+            df[column] = df[column].clip(upper=cap_value)
+        return df
+    
     def _add_tokenization_features(self, df):
         """Add tokenization-related features"""
         for col in ['prompt', 'response_a', 'response_b']:
             df[f'{col}_tokens'] = df[col].apply(self._tokenize)
             df[f'{col}_token_length'] = df[f'{col}_tokens'].apply(len)
+        df = self._handle_upper_outliers(df, ['prompt_token_length', 'response_a_token_length', 'response_b_token_length'])
         return df
     
     def _add_readability_scores(self, df):

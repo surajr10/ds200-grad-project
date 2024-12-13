@@ -12,8 +12,9 @@ import re
 import xgboost as xgb
 
 class BaseModel:
-    def __init__(self, data, regularization=None):
+    def __init__(self, data, test_data=None , regularization=None):
         self.data = data.copy()
+        self.test_data = test_data.copy() if test_data is not None else None
         self.model = None
         self.X_train = None
         self.X_test = None
@@ -24,12 +25,17 @@ class BaseModel:
     def preprocess(self, features):
         all_features = features + ['target']
         self.data = self.data[all_features]
-        self.data = self.data.dropna()
+        # self.data = self.data.dropna()
 
         # Split data into training and testing sets
-        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
-            self.data.drop('target', axis=1), self.data['target'], test_size=0.3, random_state=42
-        )
+        if self.test_data is None:
+            self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
+                self.data.drop('target', axis=1), self.data['target'], test_size=0.3, random_state=42
+            )
+        else:
+            self.test_data = self.test_data[features]
+            self.X_train, self.y_train = self.data.drop('target', axis=1), self.data['target']
+            self.X_test = self.test_data
 
         # Scale data
         scaler = StandardScaler()
@@ -68,8 +74,8 @@ class LogisticRegressionModel(BaseModel):
         print("The confusion matrix is: ", confusion_matrix(self.y_test, y_pred))
 
 class XGBoostModel(BaseModel):
-    def __init__(self, data):
-        super().__init__(data, regularization=None)
+    def __init__(self, data, test_data=None):
+        super().__init__(data, test_data=test_data, regularization=None)
     
     def preprocess(self, features):
         self.data['target'] = self.data['winner'].map({'model_a': 0, 'model_b': 1, 'tie': 2, 'tie (bothbad)': 3})
@@ -79,18 +85,20 @@ class XGBoostModel(BaseModel):
         self.model = xgb.XGBClassifier()
         self.model.fit(self.X_train, self.y_train)
     
-    def predict(self, test_data=None):
-        if test_data is not None:
-            y_pred = self.model.predict(test_data)
-            return y_pred
-        y_pred = self.model.predict(self.X_test)
+    def predict(self, on_test=False):
+        against = self.X_test if on_test else self.X_train
+        y_pred = self.model.predict(against)
         return y_pred
     
-    def evaluate(self, y_pred):
-        acc = accuracy_score(self.y_test, y_pred)
+    def evaluate(self, y_pred, on_test=False):
+        against = self.y_test if on_test else self.y_train
+        acc = accuracy_score(against, y_pred)
         print("The accuracy is: ", acc)
-        print("Classification report: ", classification_report(self.y_test, y_pred))
+        print("Classification report: ", classification_report(against, y_pred))
         return acc
+    
+    def predict_to_outcome(self, y_pred):
+        return pd.Series(y_pred).map({0: 'model_a', 1: 'model_b', 2: 'tie', 3: 'tie (bothbad)'})
 
 class SVMModel(BaseModel):
     def __init__(self, data, decision_function_shape='ovr'):
@@ -132,12 +140,12 @@ class SVMModel(BaseModel):
 
 
 class MultiLinearRegressionModel(BaseModel):
-    def __init__(self, data, regularization=None):
-        super().__init__(data, regularization)
+    def __init__(self, data, test_data=None, regularization=None):
+        super().__init__(data, test_data, regularization)
         self.alpha = None
     
     def preprocess(self, features):
-        self.data = self.data.dropna() #TODO: take this out later
+        # self.data = self.data.dropna() #TODO: take this out later
         self.data['target'] = self.data['combined_hardness_score'].round().astype(int)
         super().preprocess(features)
 
@@ -153,18 +161,17 @@ class MultiLinearRegressionModel(BaseModel):
         else:
             self.model.fit(self.X_train, self.y_train)
 
-    def predict(self, test_data=None):
-        if test_data is not None:
-            y_pred = self.model.predict(test_data)
-            return y_pred
-        y_pred = np.array(self.model.predict(self.X_test)).round()
+    def predict(self, on_test=False):
+        against = self.X_test if on_test else self.X_train
+        y_pred = np.array(self.model.predict(against)).round()
+        y_pred = np.clip(y_pred, 1, 9)
         return y_pred
     
     def tune_hyperparameters(self):
         if self.regularization == None:
             self.model.fit(self.X_train, self.y_train)
             return
-        params = {'alpha': np.arange(0.02, 1, 0.02)}
+        params = {'alpha': [0.02, 0.5, 0.98]}
         grid_search = GridSearchCV(self.model, params, cv=5)
         grid_search.fit(self.X_train, self.y_train)
         print("Best parameters: ", grid_search.best_params_)
@@ -172,8 +179,9 @@ class MultiLinearRegressionModel(BaseModel):
         self.model = grid_search.best_estimator_
         self.alpha = grid_search.best_params_['alpha']
 
-    def evaluate(self, y_pred):
-        mse = mean_squared_error(self.y_test, y_pred)
+    def evaluate(self, y_pred, on_test=False):
+        against = self.y_test if on_test else self.y_train
+        mse = mean_squared_error(against, y_pred)
         print("The MSE is: ", mse)
         return mse
     

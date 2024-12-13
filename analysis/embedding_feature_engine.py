@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from scipy.spatial.distance import cosine, euclidean
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.cluster import KMeans, AgglomerativeClustering
 import umap
 import hdbscan
@@ -12,7 +12,7 @@ class EmbeddingFeatureEngine:
         """Initialize the EmbeddingFeatureEngine"""
         self.scaler = StandardScaler()
 
-    def process_dataframe(self, prompt_embeddings_path, response_a_embeddings_path, response_b_embeddings_path):
+    def process_dataframe(self, train_prompt_embeddings_path, train_response_a_embeddings_path, train_response_b_embeddings_path, test_prompt_embeddings_path, test_response_a_embeddings_path, test_response_b_embeddings_path):
         """
         Main method to load and process embeddings from file paths
 
@@ -31,7 +31,7 @@ class EmbeddingFeatureEngine:
             Processed dataframes for each clustering method with embedding-based features
         """
         # Validate file paths
-        for path in [prompt_embeddings_path, response_a_embeddings_path, response_b_embeddings_path]:
+        for path in [train_prompt_embeddings_path, train_response_a_embeddings_path, train_response_b_embeddings_path, test_prompt_embeddings_path, test_response_a_embeddings_path, test_response_b_embeddings_path]:
             if not os.path.exists(path):
                 raise FileNotFoundError(f"Embedding file not found: {path}")
             if not path.endswith('.npy'):
@@ -39,17 +39,31 @@ class EmbeddingFeatureEngine:
 
         # Load embeddings
         try:
-            prompt_embeddings = np.load(prompt_embeddings_path)
-            response_a_embeddings = np.load(response_a_embeddings_path)
-            response_b_embeddings = np.load(response_b_embeddings_path)
+            train_prompt_embeddings = np.load(train_prompt_embeddings_path)
+            train_response_a_embeddings = np.load(train_response_a_embeddings_path)
+            train_response_b_embeddings = np.load(train_response_b_embeddings_path)
+            test_prompt_embeddings = np.load(test_prompt_embeddings_path)
+            test_response_a_embeddings = np.load(test_response_a_embeddings_path)
+            test_response_b_embeddings = np.load(test_response_b_embeddings_path)
 
             print(f"Loaded embeddings with shapes:")
-            print(f"Prompt embeddings: {prompt_embeddings.shape}")
-            print(f"Response A embeddings: {response_a_embeddings.shape}")
-            print(f"Response B embeddings: {response_b_embeddings.shape}")
+            print(f"Train Prompt embeddings: {train_prompt_embeddings.shape}")
+            print(f"Train Response A embeddings: {train_response_a_embeddings.shape}")
+            print(f"Train Response B embeddings: {train_response_b_embeddings.shape}")
+            print(f"Test Prompt embeddings: {test_prompt_embeddings.shape}")
+            print(f"Test Response A embeddings: {test_response_a_embeddings.shape}")
+            print(f"Test Response B embeddings: {test_response_b_embeddings.shape}")
+
 
         except Exception as e:
             raise Exception(f"Error loading embeddings: {str(e)}")
+        
+        cutoff = train_prompt_embeddings.shape[0]
+
+        # Concatenate train and test embeddings
+        prompt_embeddings = np.concatenate([train_prompt_embeddings, test_prompt_embeddings], axis=0)
+        response_a_embeddings = np.concatenate([train_response_a_embeddings, test_response_a_embeddings], axis=0)
+        response_b_embeddings = np.concatenate([train_response_b_embeddings, test_response_b_embeddings], axis=0)
 
         # Process embeddings
         features = {}
@@ -86,9 +100,12 @@ class EmbeddingFeatureEngine:
         )
 
         general_features = pd.DataFrame(features)
-        clustering_dataframes = {}
+        clustering_dataframes = {'train': {}, 'test': {}}
         for method, method_features in clustering_features.items():
-            clustering_dataframes[method] = pd.concat([general_features, pd.DataFrame(method_features)], axis=1)
+            method_features_df = pd.concat([general_features, pd.DataFrame(method_features)], axis=1)
+            clustering_dataframes['train'][method] = method_features_df[:cutoff]
+            clustering_dataframes['test'][method] = method_features_df[cutoff:]
+            # clustering_dataframes[method] = pd.concat([general_features, pd.DataFrame(method_features)], axis=1)
 
         return clustering_dataframes
 
@@ -164,6 +181,16 @@ class EmbeddingFeatureEngine:
         features['std_response_b'] = [np.std(rb) for rb in response_b_emb]
 
         return features
+    
+    def _ohe_cluster_labels(self, df, columns):
+        for column in columns:
+            ohe = OneHotEncoder(drop='first')
+            ohe.fit(df[[column]])
+            encoded_column = ohe.transform(df[[column]]).toarray()
+            encoded_column_df = pd.DataFrame(encoded_column, columns=ohe.get_feature_names_out())
+            df = pd.concat([df, encoded_column_df], axis=1).drop(columns=column)
+
+        return df
 
     def _add_clustering_features(self, prompt_emb, response_a_emb, response_b_emb):
         """Add clustering-based features from embeddings"""
@@ -190,10 +217,10 @@ class EmbeddingFeatureEngine:
             # Cluster Transition Type
             method_features['response_a_same_cluster_as_prompt'] = (
                 method_features['response_a_clusters'] == method_features['prompt_clusters']
-            )
+            ).astype(int)
             method_features['response_b_same_cluster_as_prompt'] = (
                 method_features['response_b_clusters'] == method_features['prompt_clusters']
-            )
+            ).astype(int)
 
             # Cluster Transition Distance (only for algorithms with centroids)
             if hasattr(clusterer, 'cluster_centers_'):
@@ -218,7 +245,12 @@ class EmbeddingFeatureEngine:
             # Cluster Independence
             method_features['response_a_different_from_response_b'] = (
                 method_features['response_a_clusters'] != method_features['response_b_clusters']
-            )
+            ).astype(int)
+
+            # One-hot encode cluster labels
+            method_features = self._ohe_cluster_labels(pd.DataFrame(method_features), columns=[
+                'prompt_clusters', 'response_a_clusters', 'response_b_clusters'
+            ])
 
             clustering_features[method] = method_features
 
