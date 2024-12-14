@@ -203,7 +203,7 @@ class EmbeddingFeatureEngine:
         response_b_umap = umap_reducer.fit_transform(response_b_emb)
 
         for method, clusterer in {
-            'hdbscan': hdbscan.HDBSCAN(min_cluster_size=10, min_samples=2),
+            'hdbscan': hdbscan.HDBSCAN(min_cluster_size=20, min_samples=2),
             'kmeans': KMeans(n_clusters=10, random_state=42),
             'agglo': AgglomerativeClustering(n_clusters=10)
         }.items():

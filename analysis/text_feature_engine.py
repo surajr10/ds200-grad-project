@@ -65,7 +65,7 @@ class TextFeatureEngine:
     
     def _add_readability_scores(self, df):
         """Add readability scores"""
-        for response in ['response_a', 'response_b']:
+        for response in ['prompt', 'response_a', 'response_b']:
             df[f'{response}_flesch_kincaid'] = df[response].apply(textstat.flesch_kincaid_grade)
             df[f'{response}_gunning_fog'] = df[response].apply(textstat.gunning_fog)
             df[f'{response}_smog'] = df[response].apply(textstat.smog_index)
@@ -73,7 +73,7 @@ class TextFeatureEngine:
     
     def _add_lexical_features(self, df):
         """Add lexical richness features"""
-        for response in ['response_a', 'response_b']:
+        for response in ['prompt', 'response_a', 'response_b']:
             df[f'{response}_ttr'] = df[response].apply(self._type_token_ratio)
             df[f'{response}_lexical_diversity'] = df[response].apply(self._lexical_diversity)
             df[f'{response}_avg_syllable_count'] = df[response].apply(self._average_syllable_count)
